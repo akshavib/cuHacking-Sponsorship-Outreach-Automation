@@ -1,0 +1,138 @@
+// -------------- CONSTANTS AND INITIAL SETUP ----------------
+const PATRONAGE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1QzU8dlAm10UXFD2ncWAqSC_QLjt8VmcOF7r6SKatrSM/edit?gid=0#gid=0";
+const TEMPLATE_URLS = {
+  DEMO: "https://docs.google.com/document/d/1WVRvIuISUmeoq3SyPIA2LxakiXFQaTjUlwcr43bZ57U/edit",
+};
+
+const DEFAULT_CC = ['akshavi.bt@gmail.com'];
+
+const patronageSheet = SpreadsheetApp.openByUrl(PATRONAGE_SHEET_URL).getActiveSheet();
+const columnsLetter = identifyColumns(patronageSheet);
+
+const emailTemplates = loadEmailTemplates(TEMPLATE_URLS);
+
+// Define email actions
+const EMAIL_ACTION = {
+  SEND: 'SEND',
+  DRAFT: 'DRAFT'
+};
+
+// -------------- SEND/DRAFT THE EMAILS ---------------------
+doEmailAction(EMAIL_ACTION.DRAFT, 'DEMO', DEFAULT_CC)
+
+// ---------------- FUNCTION DEFINITIONS ----------------
+
+// Dynamically identify headers and assign to columns
+function identifyColumns(sheet) {
+  if (!sheet) return;
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]; // getRange(row, col, numRows, numColumns)
+  const columns = {};
+
+  headers.forEach((header, index) => {
+    const columnLetter = String.fromCharCode(65 + index); // 'A' = 65 in ASCII
+    switch (header) {
+      case "Company Name":
+        columns.COMPANY_NAME = columnLetter;
+        break;
+      case "Rep. Full Name":
+        columns.PERSON_FULL_NAME = columnLetter;
+        break;
+      case "Role":
+        columns.ROLE = columnLetter;
+        break;
+      case "Email Address":
+        columns.EMAIL_ADDRESS = columnLetter;
+        break;
+      case "cuHacking Correspondant":
+        columns.CUHACKING_CORRESPONDENT = columnLetter;
+        break;
+      default:
+        Logger.log(`Unknown header: ${header}`);
+    }
+  });
+  console.log(columns)
+  return columns;
+}
+
+// Load email templates from Google Docs
+function loadEmailTemplates(urls) {
+  const templates = {};
+  for (let [key, url] of Object.entries(urls)) {
+    templates[key] = {
+      SUBJECT: getSubjectFromDocument(url),
+      BODY: DocumentApp.openByUrl(url).getBody().getText()
+    };
+  }
+  return templates;
+}
+
+// Extract subject from document name
+function getSubjectFromDocument(docUrl) {
+  try {
+    const doc = DocumentApp.openByUrl(docUrl);
+    const title = doc.getName();
+    return title.replace(/\[.*?\]/g, '').trim() || "No Subject Found";
+  } catch (error) {
+    Logger.log(`Error extracting subject from document: ${error.message}`);
+    return "No Subject Found";
+  }
+}
+
+// Get column value by header name
+function getColumnValue(headers, row, headerName) {
+  const index = headers.indexOf(headerName);
+  return index >= 0 ? row[index] : '';
+}
+
+// Retrieve value from specific cell
+function getCellValue(sheet, column, row) {
+  console.log(column + row)
+  return sheet.getRange(column + row).getValue();
+}
+
+// ---------------- GMAIL FUNCTIONS -----------------
+
+// Send email with CC
+function sendEmail(address, subject, body, cc = DEFAULT_CC) {
+  GmailApp.sendEmail(address, subject, body, { cc: cc.join(', ') });
+  Logger.log(`Email sent to: ${address}`);
+}
+
+// Create a draft email with CC
+function draftEmail(address, subject, body, cc = DEFAULT_CC) {
+  console.log(address)
+  GmailApp.createDraft(address, subject, body, { cc: cc.join(', ') });
+  Logger.log(`Draft created for: ${address}`);
+}
+
+// Loop through spreadsheet rows and either draft or send emails
+function doEmailAction(action = EMAIL_ACTION.DRAFT, emailTemplate = 'DEMO', cc = DEFAULT_CC) {
+  const lastRow = patronageSheet.getLastRow();
+
+  for (let row = 2; row <= lastRow; row++) {
+    const email = getCellValue(patronageSheet, columnsLetter.EMAIL_ADDRESS, row);
+    const personName = getCellValue(patronageSheet, columnsLetter.PERSON_FULL_NAME, row);
+    const role = getCellValue(patronageSheet, columnsLetter.ROLE, row);
+    const cuhackingCorrespondent = getCellValue(patronageSheet, columnsLetter.CUHACKING_CORRESPONDENT, row);
+    const firstName = personName.split(' ')[0];
+    const companyName = getCellValue(patronageSheet, columnsLetter.COMPANY_NAME, row);
+
+    const subject = emailTemplates[emailTemplate].SUBJECT;
+    const body = emailTemplates[emailTemplate].BODY
+      .replaceAll("[FIRST_NAME]", firstName)
+      .replaceAll("[COMPANY_NAME]", companyName)
+      .replaceAll("[ROLE]", role)
+      .replaceAll("[CUHACKING_CORRESPONDENT]", cuhackingCorrespondent);
+
+    switch (action) {
+      case EMAIL_ACTION.SEND:
+        sendEmail(email, subject, body, cc);
+        break;
+      case EMAIL_ACTION.DRAFT:
+        draftEmail(email, subject, body, cc);
+        break;
+      default:
+        Logger.log(`Invalid email action specified: ${action}`);
+    }
+  }
+}
